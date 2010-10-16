@@ -14,7 +14,8 @@ from http import fetch
 from store import save_url
 
 class Harvester(Thread, object):
-    """A harvester thread. Initialized with a base set of urls and an output directory,
+    """A harvester thread. Initialized with a base set of urls, a list of root-prefixes
+    and an output directory,
     will start scraping with start()
 
     It creates a queue for the urls, and spawns a number of sub-threads
@@ -24,10 +25,8 @@ class Harvester(Thread, object):
 
     """
 
-    def __init__(self, urls, output_directory=None, limit=None, pool_size=4):
+    def __init__(self, urls, roots, output_directory=None, limit=None, pool_size=4):
         Thread.__init__(self)
-
-        roots = [os.path.split(url)[0] for url in urls]
         self.queue = ScraperQueue(urls, roots, limit)
 
         if not output_directory:
@@ -75,8 +74,8 @@ class ScraperQueue(object):
 
     """
     def __init__(self, urls, roots, limit):
-        self.unread_set = set(urls)
-        self.unread_queue = deque(((0,url) for url in self.unread_set))
+        self.unread_set = set()
+        self.unread_queue = deque()
         self.visited = set()
 
         self.roots=roots
@@ -86,6 +85,8 @@ class ScraperQueue(object):
 
         self.update_lock = Lock()
         self.waiting_consumers = Condition()
+
+        self.enqueue(urls, 0)
 
     def active(self):
        """Returns True if there are items waiting to be read,
@@ -138,12 +139,15 @@ class ScraperQueue(object):
             if not self.unread_queue:
                 yield None
             else:
+                out=None
                 with self.update_lock:
-                    self.active_consumers+=1
-                    (depth, url) =self.unread_queue.popleft()
-                yield (depth, url)
+                    if self.unread_queue:
+                        self.active_consumers+=1
+                        out =self.unread_queue.popleft()
+                yield out
 
                 with self.update_lock:
+                    url = out[1]
                     self.visited.add(url)
                     self.unread_set.remove(url)
                     self.active_consumers-=1
