@@ -26,6 +26,10 @@ def main(argv):
 
     s.wait()
 
+    read, excluded = s.read, s.excluded
+
+    print "completed read %d, excluded %d urls"%(len(read), len(excluded))
+
     return 0
 
 
