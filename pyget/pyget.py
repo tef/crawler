@@ -37,8 +37,8 @@ def main(argv):
     s = Harvester(
         urls,
         output_directory=options.output_directory,
-        limit=min(0,int(options.recursion_limit)) if options.recursion_limit else None,
-        pool_size=min(1,int(options.pool_size)),
+        limit=max(0,int(options.recursion_limit)) if options.recursion_limit else None,
+        pool_size=max(1,int(options.pool_size)),
     )
 
     s.start()
