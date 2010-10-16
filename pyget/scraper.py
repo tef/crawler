@@ -9,7 +9,7 @@ import logging
 from collections import deque
 from urllib2 import urlopen, URLError
 from urlparse import urlparse
-from htmlparser import LinkParser
+from htmlparser import LinkParser, HTMLParseError
 
 class Scraper(object):
     def __init__(self, urls, output_directory=None):
@@ -55,7 +55,6 @@ class Scraper(object):
             content_type = response.info()['Content-Type']
             data = response.read()
 
-
             if content_type.find("html") >= 0:
                 links = self.extract_links(url, data)
             else:
@@ -90,7 +89,7 @@ class Scraper(object):
 
         return filename
 
-   def write_file(self, url, data):
+    def write_file(self, url, data):
         filename = self.get_file_name(url)
         create_necessary_dirs(filename)
         logging.debug("Creating file: %s"%filename)
