@@ -8,36 +8,46 @@ import logging
 
 from optparse import OptionParser
 
-from scraper import Scraper
+from lib import Harvester
+
+LEVELS = {'debug': logging.DEBUG,
+          'info': logging.INFO,
+          'warning': logging.WARNING,
+          'error': logging.ERROR,
+          'critical': logging.CRITICAL}
 
 parser = OptionParser(usage="%prog [options] url (url ...)")
 
 parser.add_option("-o", "--output-directory", dest="output_directory",
                        help="write downloaded files to this directory")
 parser.add_option("-l", "--limit", dest="recursion_limit")
+parser.add_option("-L", "--log_level", dest="log_level")
 
-parser.set_defaults(output_directory=None, recursion_limit=None)
+parser.add_option("--pool", dest="pool_size")
+
+parser.set_defaults(output_directory=None, recursion_limit=None, pool_size=4, log_level="info")
 
 def main(argv):
-    logging.basicConfig(level=logging.INFO)
     (options, urls) = parser.parse_args(args=argv[1:])
+    logging.basicConfig(level=LEVELS[options.log_level])
 
     if len(urls) < 1:
         parser.error("missing url(s)")
 
-    s = Scraper(
+    s = Harvester(
         urls,
         output_directory=options.output_directory,
         limit=options.recursion_limit,
+        pool_size=options.pool_size,
     )
 
     s.start()
 
     s.join()
 
-    read, excluded = s.read, s.excluded
+    read, excluded = s.queue.visited, s.queue.excluded
 
-    print "completed read: %d, excluded %d urls"%(len(read), len(excluded))
+    logging.info("completed read: %d, excluded %d urls"%(len(read), len(excluded)))
 
     return 0
 
