@@ -6,27 +6,34 @@ import os
 import os.path
 import logging
 
+from threading import Thread
 from collections import deque
 from urllib2 import urlopen, URLError
 from urlparse import urlparse
 from htmlparser import LinkParser, HTMLParseError
 
-class Scraper(object):
+class Scraper(Thread, object):
+    """A scraper thread. Initialized with a base set of urls and an output directory,
+    will start scraping with start()"""
+
     def __init__(self, urls, output_directory=None, limit=None):
+        Thread.__init__(self)
         self.unread_queue = deque(((0,url) for url in urls))
         self.unread_set = set(urls)
 
         self.roots = [os.path.split(url)[0] for url in urls]
+
         self.read = {}
-        self.limit = limit
         self.excluded = []
+
+        self.limit = limit
 
         if not output_directory:
             output_directory = os.getcwd()
         self.output = output_directory
 
 
-    def start(self):
+    def run(self):
         while self.unread_queue:
             (depth, first) = self.unread_queue.popleft()
 
@@ -42,7 +49,7 @@ class Scraper(object):
                     for url in links:
                         if self.will_follow(url):
                              if url not in self.read and url not in self.unread_set:
-                                logging.info("Will visit %s" %url)
+                                logging.debug("Will visit %s" %url)
                                 self.unread_queue.append((depth,url))
                                 self.unread_set.add(url)
                              else:
@@ -106,10 +113,6 @@ class Scraper(object):
             foo.write(data)
             pass
 
-
-
-    def wait(self):
-        pass
 
 def create_necessary_dirs(filename):
     dir = os.path.dirname(filename)

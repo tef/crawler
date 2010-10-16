@@ -33,11 +33,11 @@ def main(argv):
 
     s.start()
 
-    s.wait()
+    s.join()
 
     read, excluded = s.read, s.excluded
 
-    print "completed read %d, excluded %d urls"%(len(read), len(excluded))
+    print "completed read: %d, excluded %d urls"%(len(read), len(excluded))
 
     return 0
 
