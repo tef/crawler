@@ -41,13 +41,25 @@ class LinkParser(HTMLParser):
     def get_abs_links(self, url):
         full_urls = []
         root = urlparse(url)
+        root_dir = os.path.split(root.path)[0]
         for link in self.links:
             parsed = urlparse(link)
             if not parsed.netloc: # does it have no protocol or host, i.e relative
                 if parsed.path.startswith("/"):
-                    parsed = root[0:2] + parsed[2:]
+                    parsed = root[0:2] + parsed[2:5] + (None,)
                 else:
-                    parsed = root[0:2] + (os.path.join(root.path, parsed.path),) + parsed[3:]
+                    dir = root_dir
+                    path = parsed.path
+                    while True:
+                        if path.startswith("../"):
+                            path=path[3:]
+                            dir=os.path.split(dir)[0]
+                        elif path.startswith("./"):
+                            path=path[2:]
+                        else:
+                            break
+
+                    parsed = root[0:2] + (os.path.join(dir, path),) + parsed[3:5] + (None,)
                 new_link = urlunparse(parsed)
                 logging.debug("relative %s -> %s"%(link, new_link))
                 link=new_link
