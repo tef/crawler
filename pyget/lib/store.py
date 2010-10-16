@@ -13,7 +13,7 @@ def save_url(output_dir, url, data):
     try:
         filename = get_file_name(output_dir, url)
         create_necessary_dirs(filename)
-        logging.info("Creating file: %s"%filename)
+        logging.debug("Creating file: %s"%filename)
         with open(filename,"wb") as foo:
             foo.write(data)
     except StandardError, e:

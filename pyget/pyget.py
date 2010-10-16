@@ -21,7 +21,7 @@ parser = OptionParser(usage="%prog [options] url (url ...)")
 parser.add_option("-o", "--output-directory", dest="output_directory",
                        help="write downloaded files to this directory")
 parser.add_option("-l", "--limit", dest="recursion_limit")
-parser.add_option("-L", "--log_level", dest="log_level")
+parser.add_option("-L", "--log-level", dest="log_level")
 
 parser.add_option("--pool", dest="pool_size")
 
@@ -37,17 +37,14 @@ def main(argv):
     s = Harvester(
         urls,
         output_directory=options.output_directory,
-        limit=options.recursion_limit,
-        pool_size=options.pool_size,
+        limit=min(0,int(options.recursion_limit)) if options.recursion_limit else None,
+        pool_size=min(1,int(options.pool_size)),
     )
 
     s.start()
 
     s.join()
 
-    read, excluded = s.queue.visited, s.queue.excluded
-
-    logging.info("completed read: %d, excluded %d urls"%(len(read), len(excluded)))
 
     return 0
 

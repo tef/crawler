@@ -58,6 +58,9 @@ class Harvester(Thread, object):
         for p in pool:
             p.join()
 
+        read, excluded = self.queue.visited, self.queue.excluded
+
+        logging.info("completed read: %d, excluded %d urls"%(len(read), len(excluded)))
 
 
 
@@ -102,7 +105,7 @@ class ScraperQueue(object):
                self.waiting_consumers.wait()
            logging.debug(threading.currentThread().getName()+"awake" + str(self.unread_queue) +"  " + str(self.active_consumers))
            self.waiting_consumers.release()
-           return bool(self.unread_queue) or self.active_consumers > 0
+           return bool(self.unread_queue)
 
 
     def enqueue(self, links, depth):
@@ -111,8 +114,8 @@ class ScraperQueue(object):
             with self.update_lock:
                 for url in links:
                      if self.will_follow(url):
-                                 self.unread_set.add(url)
-                                 self.unread_queue.append((depth,url))
+                         self.unread_set.add(url)
+                         self.unread_queue.append((depth,url))
 
                      else:
                          self.excluded.add(url)

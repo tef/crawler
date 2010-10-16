@@ -7,7 +7,7 @@ from htmlparser import LinkParser, HTMLParseError
 
 def fetch(url):
     """Returns a tuple of ("data", [links])"""
-    logging.info("fetching %s"%url)
+    logging.debug("fetching %s"%url)
     try:
         response = urlopen(url)
         content_type = response.info()['Content-Type']
