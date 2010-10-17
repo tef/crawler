@@ -145,13 +145,13 @@ class ScraperQueue(object):
                         self.active_consumers+=1
                         out =self.unread_queue.popleft()
                 yield out
-
-                with self.update_lock:
-                    url = out[1]
-                    self.visited.add(url)
-                    self.unread_set.remove(url)
-                    self.active_consumers-=1
-                self.wake_up_consumers()
+                if out:
+                    with self.update_lock:
+                        url = out[1]
+                        self.visited.add(url)
+                        self.unread_set.remove(url)
+                        self.active_consumers-=1
+                    self.wake_up_consumers()
 
         return manager()
 
@@ -167,7 +167,7 @@ class ScraperQueue(object):
     def wake_up_consumers(self):
         # if there is data to be processed or nothing happening
         if self.unread_queue or self.active_consumers == 0:
-            logging.debug("Waking up consumers because" +("unread" if self.unread_queue else "finished"))
+            logging.debug("Waking up consumers because " +("unread" if self.unread_queue else "finished"))
             self.waiting_consumers.acquire()
             self.waiting_consumers.notifyAll()
             self.waiting_consumers.release()
