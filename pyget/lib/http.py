@@ -1,7 +1,6 @@
 import logging
 
-from urllib2 import urlopen, URLError
-from urlparse import urlparse
+import requests
 from htmlparser import LinkParser, HTMLParseError
 
 
@@ -9,9 +8,9 @@ def fetch(url):
     """Returns a tuple of ("data", [links])"""
     logging.debug("fetching %s"%url)
     try:
-        response = urlopen(url)
-        content_type = response.info()['Content-Type']
-        data = response.read()
+        response = requests.get(url)
+        content_type = response.headers['Content-Type']
+        data = response.text
 
         if content_type.find("html") >= 0:
             links = extract_links(url, data)
@@ -20,7 +19,7 @@ def fetch(url):
             links = ()
 
         return (data, links)
-    except URLError, ex:
+    except requests.exceptions.RequestException as ex:
         logging.warn("Can't fetch url: %s error:%s"%(url,ex))
         return (None, ())
 
