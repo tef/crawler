@@ -1,7 +1,7 @@
 #!/usr/bin/env python2.5
 """An example website downloader, similar in functionality to
-a primitive wget. It has no third party dependencies, and
-is written for Python 2.5"""
+a primitive wget. It has one third party dependency (requests), and
+is written for Python 2.5. MIT License"""
 
 import sys
 import os.path
