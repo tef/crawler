@@ -50,15 +50,15 @@ class Scraper(Thread):
             os.makedirs(self.output)
         filename = os.path.join(self.output, self.getName()+".warc")
         logging.debug("Creating file: %s"%filename)
-        with open(filename,"wb") as fh:
+        with open(filename,"ab") as fh:
             while self.queue.active():
-                with self.queue.consume_top() as top:
-                    if top:
-                        (depth, url) = top
-                        self.scrape(url, depth, fh)
+                with self.queue.consume_top() as link:
+                    if link:
+                        self.scrape(link, fh)
             logging.info(self.getName()+" exiting")
 
-    def scrape(self, url, depth, fh):
+    def scrape(self, link, fh):
+        (depth, url) = link
         logging.info(self.getName()+" getting "+url)
         try:
             response = requests.get(url)
