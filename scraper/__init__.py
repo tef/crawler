@@ -8,16 +8,18 @@ import os
 import re
 import os.path
 
+from datetime import datetime
 from urlparse import urlparse
 from threading import Thread,Condition,Lock
 from collections import deque, namedtuple
 from contextlib import contextmanager
+from uuid import uuid4
 
 from .htmlparser import LinkParser, HTMLParseError
 
 import requests
 try:
-    from hanzo.warctools import WarcRecord
+    from hanzo.warctools import warc
 except:
     WarcRecord = None
 
@@ -36,22 +38,27 @@ def scrape(scraper, queue, pool_size):
     logging.info("completed read: %d, excluded %d urls"%(len(read), len(excluded)))
 
 class Scraper(Thread):
-    def __init__(self, queue, output_directory, **args):
+    def __init__(self, queue, output_directory, name, **args):
         self.queue = queue 
         if not output_directory:
             output_directory = os.getcwd()
         self.output = output_directory
-        Thread.__init__(self, **args)
+        Thread.__init__(self, name=name,  **args)
 
     def run(self):
-        while self.queue.active():
-            with self.queue.consume_top() as top:
-                if top:
-                    (depth, url) = top
-                    self.scrape(url, depth)
-        logging.info(self.getName()+" exiting")
+        if not os.path.exists(self.output):
+            os.makedirs(self.output)
+        filename = os.path.join(self.output, self.getName()+".warc")
+        logging.debug("Creating file: %s"%filename)
+        with open(filename,"wb") as fh:
+            while self.queue.active():
+                with self.queue.consume_top() as top:
+                    if top:
+                        (depth, url) = top
+                        self.scrape(url, depth, fh)
+            logging.info(self.getName()+" exiting")
 
-    def scrape(self, url, depth):
+    def scrape(self, url, depth, fh):
         logging.info(self.getName()+" getting "+url)
         try:
             response = requests.get(url)
@@ -65,7 +72,7 @@ class Scraper(Thread):
         if links:
             self.queue.enqueue(Link(lnk, depth+1) for lnk in links)
 
-        self.write(response)
+        self.write(response, fh)
 
 
     def extract_links(self,response):
@@ -86,17 +93,30 @@ class Scraper(Thread):
             
         return links
 
-    def write(self,response):
-        url = response.url
-        data = response.content
-        try:
-            filename = get_file_name(self.output, url)
-            create_necessary_dirs(filename)
-            logging.debug("Creating file: %s"%filename)
-            with open(filename,"wb") as foo:
-                foo.write(data)
-        except StandardError, e:
-            logging.warn(e)
+    def write(self,response, fh):
+        
+        request=response.request
+        request_id = "<uin:uuid:%s>"%uuid4()
+        response_id = "<uin:uuid:%s>"%uuid4()
+        date = warc.warc_datetime_str(datetime.utcnow())
+
+        request_raw = ["%s %s HTTP/1.1"%(request.method, request.full_url)]
+        request_raw.extend("%s: %s"%(k,v) for k,v in request.headers.iteritems())
+        content = request._enc_data
+        request_raw.extend([("Content-Length: %d"%len(content)),"",content])
+        request_raw = "\r\n".join(str(s) for s in request_raw)
+
+        response_raw = ["HTTP/1.1 %d -"%(response.status_code)]
+        response_raw.extend("%s: %s"%(k,v) for k,v in response.headers.iteritems())
+        content=response.content
+        response_raw.extend([("Content-Length: %d"%len(content)),"",content])
+        response_raw = "\r\n".join(str(s) for s in response_raw)
+
+        requestw = warc.make_request(request_id, date, request.url, ('application/http;msgtype=request', request_raw), response_id)
+        responsew = warc.make_response(response_id, date, response.url, ('application/http;msgtype=response', response_raw), request_id)
+
+        requestw.write_to(fh)
+        responsew.write_to(fh)
 
 
 
@@ -205,29 +225,4 @@ class ScraperQueue(object):
             self.waiting_consumers.acquire()
             self.waiting_consumers.notifyAll()
             self.waiting_consumers.release()
-
-# todo strip this out in lieu of warcs
-re_strip = re.compile(r"[^\w\d\-_]")
-
-def clean_query(arg):
-    if arg:
-        return re.sub(re_strip,"_", arg)
-    else:
-        return ""
-def get_file_name(output_dir, url):
-    data = urlparse(url)
-    path = data.path[1:] if data.path.startswith("/") else path
-    if path.endswith("/"):
-        path = path+"index.html";
-
-    path = path + "."+clean_query(data.query) if data.query else path
-
-    filename = os.path.join(output_dir+"/", data.netloc, path)
-
-    return filename
-
-def create_necessary_dirs(filename):
-    dir = os.path.dirname(filename)
-    if not os.path.exists(dir):
-        os.makedirs(dir)
 
