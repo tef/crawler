@@ -9,7 +9,7 @@ import logging
 
 from optparse import OptionParser
 
-from lib import Harvester
+from lib.harvester import scrape, Scraper, ScraperQueue
 
 LEVELS = {'debug': logging.DEBUG,
           'info': logging.INFO,
@@ -37,18 +37,23 @@ def main(argv):
     if len(urls) < 1:
         parser.error("missing url(s)")
 
-    s = Harvester(
+    queue = ScraperQueue(
         urls,
         roots = options.roots if options.roots else [os.path.split(url)[0] for url in urls],
-        output_directory=options.output_directory,
         limit=max(0,int(options.recursion_limit)) if options.recursion_limit else None,
+    )
+    
+    def scraper(**args):
+        return Scraper(
+            output_directory=options.output_directory,
+            **args
+            )
+
+    scrape(
+        queue = queue,
+        scraper=scraper,
         pool_size=max(1,int(options.pool_size)),
     )
-
-    s.start()
-
-    s.join()
-
 
     return 0
 

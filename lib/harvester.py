@@ -2,65 +2,102 @@
 from __future__ import with_statement
 
 
-import os.path
 import logging
 import threading
+import os
+import re
+import os.path
 
+from urlparse import urlparse
 from threading import Thread,Condition,Lock
-from collections import deque
+from collections import deque, namedtuple
 from contextlib import contextmanager
 
-from http import fetch
-from store import save_url
+from .htmlparser import LinkParser, HTMLParseError
 
-class Harvester(Thread, object):
-    """A harvester thread. Initialized with a base set of urls, a list of root-prefixes
-    and an output directory,
-    will start scraping with start()
+import requests
 
-    It creates a queue for the urls, and spawns a number of sub-threads
-    to consume from the queue, and update it with found links
+Link = namedtuple('Link','url depth ')
 
-    All sub-tasks exit when the queue is empty and all sub-tasks are waiting
+def scrape(scraper, queue, pool_size):
+    pool = [scraper(queue=queue, name="scraper-%d"%name) for name in range(pool_size)]
+    for p in pool:
+        p.start()
 
-    """
+    for p in pool:
+        p.join()
 
-    def __init__(self, urls, roots, output_directory=None, limit=None, pool_size=4):
-        Thread.__init__(self)
-        self.queue = ScraperQueue(urls, roots, limit)
+    read, excluded = queue.visited, queue.excluded
 
+    logging.info("completed read: %d, excluded %d urls"%(len(read), len(excluded)))
+
+class Scraper(Thread):
+    def __init__(self, queue, output_directory, **args):
+        self.queue = queue 
         if not output_directory:
             output_directory = os.getcwd()
         self.output = output_directory
-
-        self.pool_size = pool_size
+        Thread.__init__(self, **args)
 
     def run(self):
-        class Scraper(Thread):
-            def run(thread):
-                while self.queue.active():
-                    with self.queue.consume_top() as top:
-                        if top:
-                            (depth, url) = top
-                            logging.info(thread.getName()+" getting "+url)
-                            (data, links) = fetch(url)
+        while self.queue.active():
+            with self.queue.consume_top() as top:
+                if top:
+                    (depth, url) = top
+                    self.scrape(url, depth)
+        logging.info(self.getName()+" exiting")
 
-                            if data:
-                                save_url(self.output,url, data)
-                                if links:
-                                    self.queue.enqueue(links, depth+1)
-                logging.info(thread.getName()+" exiting")
-        pool = [Scraper(name="scraper-%d"%name) for name in range(self.pool_size)]
-        for p in pool:
-            p.start()
+    def scrape(self, url, depth):
+        logging.info(self.getName()+" getting "+url)
+        (data, links) = self.fetch(url)
 
-        for p in pool:
-            p.join()
+        if data:
+            self.save_url(self.output,url, data)
+            if links:
+                self.queue.enqueue(Link(lnk, depth+1) for lnk in links)
 
-        read, excluded = self.queue.visited, self.queue.excluded
 
-        logging.info("completed read: %d, excluded %d urls"%(len(read), len(excluded)))
+    def fetch(self, url):
+        """Returns a tuple of ("data", [links])"""
+        logging.debug("fetching %s"%url)
+        try:
+            response = requests.get(url)
+            content_type = response.headers['Content-Type']
+            data = response.text
 
+            if content_type.find("html") >= 0:
+                links = self.extract_links(url, data)
+            else:
+                logging.debug("skipping extracting links for %s:"%url)
+                links = ()
+
+            return (data, links)
+        except requests.exceptions.RequestException as ex:
+            logging.warn("Can't fetch url: %s error:%s"%(url,ex))
+            return (None, ())
+
+    def extract_links(self,url, data):
+        links = ()
+        try:
+            html = LinkParser()
+            html.feed(data)
+            html.close()
+            links = html.get_abs_links(url)
+
+        except HTMLParseError,ex:
+            logging.warning("failed to extract links for %s, %s"%(url,ex))
+
+        return links
+
+    def save_url(self,output_dir, url, data):
+        try:
+            filename = get_file_name(output_dir, url)
+            create_necessary_dirs(filename)
+            logging.debug("Creating file: %s"%filename)
+            with open(filename,"wb") as foo:
+                foo.write(data)
+        except StandardError, e:
+            logging.warn(e)
 
 
 
@@ -86,7 +123,7 @@ class ScraperQueue(object):
         self.update_lock = Lock()
         self.waiting_consumers = Condition()
 
-        self.enqueue(urls, 0)
+        self.enqueue(Link(u, 0) for u in urls)
 
     def active(self):
        """Returns True if there are items waiting to be read,
@@ -109,20 +146,17 @@ class ScraperQueue(object):
            return bool(self.unread_queue)
 
 
-    def enqueue(self, links, depth):
+    def enqueue(self, links):
         """Updates the queue with the new links at a given depth"""
-        if self.limit is None or depth < self.limit:
-            with self.update_lock:
-                for url in links:
-                     if self.will_follow(url):
-                         self.unread_set.add(url)
-                         self.unread_queue.append((depth,url))
+        with self.update_lock:
+            for url,depth in links:
+                 if self.will_follow(url) and (self.limit is None or depth < self.limit):
+                     self.unread_set.add(url)
+                     self.unread_queue.append((depth,url))
 
-                     else:
-                         self.excluded.add(url)
-                         logging.debug("Excluding %s" %url)
-        else:
-             self.excluded.update(links)
+                 else:
+                     self.excluded.add(url)
+                     logging.debug("Excluding %s" %url)
 
 
     def consume_top(self):
@@ -145,6 +179,7 @@ class ScraperQueue(object):
                         self.active_consumers+=1
                         out =self.unread_queue.popleft()
                 yield out
+                # error handling
                 if out:
                     with self.update_lock:
                         url = out[1]
@@ -171,3 +206,29 @@ class ScraperQueue(object):
             self.waiting_consumers.acquire()
             self.waiting_consumers.notifyAll()
             self.waiting_consumers.release()
+
+# todo strip this out in lieu of warcs
+re_strip = re.compile(r"[^\w\d\-_]")
+
+def clean_query(arg):
+    if arg:
+        return re.sub(re_strip,"_", arg)
+    else:
+        return ""
+def get_file_name(output_dir, url):
+    data = urlparse(url)
+    path = data.path[1:] if data.path.startswith("/") else path
+    if path.endswith("/"):
+        path = path+"index.html";
+
+    path = path + "."+clean_query(data.query) if data.query else path
+
+    filename = os.path.join(output_dir+"/", data.netloc, path)
+
+    return filename
+
+def create_necessary_dirs(filename):
+    dir = os.path.dirname(filename)
+    if not os.path.exists(dir):
+        os.makedirs(dir)
+
