@@ -16,6 +16,10 @@ from contextlib import contextmanager
 from .htmlparser import LinkParser, HTMLParseError
 
 import requests
+try:
+    from hanzo.warctools import WarcRecord
+except:
+    WarcRecord = None
 
 Link = namedtuple('Link','url depth ')
 
@@ -49,49 +53,44 @@ class Scraper(Thread):
 
     def scrape(self, url, depth):
         logging.info(self.getName()+" getting "+url)
-        (data, links) = self.fetch(url)
-
-        if data:
-            self.save_url(self.output,url, data)
-            if links:
-                self.queue.enqueue(Link(lnk, depth+1) for lnk in links)
-
-
-    def fetch(self, url):
-        """Returns a tuple of ("data", [links])"""
-        logging.debug("fetching %s"%url)
         try:
             response = requests.get(url)
-            content_type = response.headers['Content-Type']
-            data = response.text
 
-            if content_type.find("html") >= 0:
-                links = self.extract_links(url, data)
-            else:
-                logging.debug("skipping extracting links for %s:"%url)
-                links = ()
-
-            return (data, links)
         except requests.exceptions.RequestException as ex:
             logging.warn("Can't fetch url: %s error:%s"%(url,ex))
-            return (None, ())
+            return 
 
-    def extract_links(self,url, data):
+        links = self.extract_links(response)
+
+        if links:
+            self.queue.enqueue(Link(lnk, depth+1) for lnk in links)
+
+        self.write(response)
+
+
+    def extract_links(self,response):
         links = ()
-        try:
-            html = LinkParser()
-            html.feed(data)
-            html.close()
-            links = html.get_abs_links(url)
+        content_type = response.headers['Content-Type']
+        if content_type.find('html') > -1:
+            try:
+                html = LinkParser()
+                html.feed(response.text)
+                html.close()
+                links = html.get_abs_links(response.url)
 
-        except HTMLParseError,ex:
-            logging.warning("failed to extract links for %s, %s"%(url,ex))
+            except HTMLParseError,ex:
+                logging.warning("failed to extract links for %s, %s"%(url,ex))
 
+        else:
+            logging.debug("skipping extracting links for %s:"%response.url)
+            
         return links
 
-    def save_url(self,output_dir, url, data):
+    def write(self,response):
+        url = response.url
+        data = response.content
         try:
-            filename = get_file_name(output_dir, url)
+            filename = get_file_name(self.output, url)
             create_necessary_dirs(filename)
             logging.debug("Creating file: %s"%filename)
             with open(filename,"wb") as foo:
