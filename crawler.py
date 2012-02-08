@@ -9,7 +9,7 @@ import logging
 
 from optparse import OptionParser
 
-from lib.harvester import scrape, Scraper, ScraperQueue
+from scraper import scrape, Scraper, ScraperQueue
 
 LEVELS = {'debug': logging.DEBUG,
           'info': logging.INFO,
